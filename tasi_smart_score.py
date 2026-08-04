@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import warnings
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -26,10 +26,26 @@ except ImportError:
 
 TICKERS_FILE      = os.path.join(os.path.dirname(__file__), "tickers_tasi.csv")
 OUTPUT_DIR        = os.path.join(os.path.dirname(__file__), "reports")
-HISTORY_PERIOD    = "1y"
-BATCH_SIZE        = 25
+HISTORY_PERIOD    = "3mo"
+INTERVAL          = "1h"
+BATCH_SIZE        = 10
 TOP_N             = 20
-REQUEST_PAUSE_SEC = 1.0
+REQUEST_PAUSE_SEC = 2.0
+
+
+def riyadh_now():
+    return datetime.now(timezone.utc) + timedelta(hours=3)
+
+
+def riyadh_hour_label(dt):
+    h = dt.hour
+    if h == 0:
+        return "12am"
+    if h < 12:
+        return f"{h}am"
+    if h == 12:
+        return "12pm"
+    return f"{h - 12}pm"
 
 
 def load_universe(path=TICKERS_FILE):
@@ -42,7 +58,7 @@ def fetch_batch(symbols, period=HISTORY_PERIOD):
     data = yf.download(
         tickers=" ".join(symbols),
         period=period,
-        interval="1d",
+        interval=INTERVAL,
         group_by="ticker",
         auto_adjust=False,
         threads=True,
@@ -98,7 +114,7 @@ def build_report(universe_df):
                 "الاسم":             meta["name"],
                 "القطاع":            meta["sector"],
                 "السعر":             result["close"],
-                "التغير_20يوم_%":    result["price_chg_20d_pct"],
+                "التغير_20ساعة_%":    result["price_chg_20d_pct"],
                 "RSI14":             result["rsi14"],
                 "الدرجة":            result["total"],
                 "التصنيف":           result["classification"],
@@ -124,10 +140,13 @@ def build_report(universe_df):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    stamp = riyadh_now()
+    today_str = stamp.strftime("%Y-%m-%d")
+    hour_label = riyadh_hour_label(stamp)
+    report_label = f"{today_str} {hour_label}"
 
     # ══════════════════════════════
-    # 1) السوق السعودي (تاسي)
+    # السوق السعودي (تاسي)
     # ══════════════════════════════
     print("=" * 50)
     print("🇸🇦 بدء تحليل السوق السعودي (تاسي)...")
@@ -137,29 +156,17 @@ def main():
 
     report_df = build_report(universe)
     if not report_df.empty:
-        n_saved = db.save_report(report_df, today_str)
+        n_saved = db.save_report(report_df, report_label)
         print(f"تم حفظ {n_saved} سهم في قاعدة البيانات.")
         top_sa = report_df.head(TOP_N).to_dict("records")
-        notify.send_daily_alerts(top_sa, today_str)
-        csv_path = os.path.join(OUTPUT_DIR, f"tasi_report_{today_str}.csv")
+        notify.send_daily_alerts(top_sa, report_label)
+        csv_path = os.path.join(OUTPUT_DIR, f"tasi_report_{today_str}_{hour_label}.csv")
         report_df.to_csv(csv_path, encoding="utf-8-sig")
         print(f"تم حفظ CSV: {csv_path}")
     else:
         print("لم تُنتج نتائج للسوق السعودي.")
 
-    # ══════════════════════════════
-    # 2) السوق الأمريكي
-    # ══════════════════════════════
-    print("\n" + "=" * 50)
-    print("🇺🇸 بدء تحليل السوق الأمريكي...")
-    print("=" * 50)
-    try:
-        import us_smart_score
-        us_smart_score.run_us_analysis(today_str)
-    except Exception as e:
-        print(f"⚠️ خطأ في تحليل السوق الأمريكي: {e}")
-
-    print("\n✅ اكتمل التحليل اليومي.")
+    print("\n✅ اكتمل التحليل.")
 
 
 if __name__ == "__main__":
