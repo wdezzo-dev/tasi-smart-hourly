@@ -1,6 +1,5 @@
 name: daily-1h
 on:
-  workflow_dispatch: {}
   schedule:
     - cron: '25 8-13 * * 0-4'
 permissions:
